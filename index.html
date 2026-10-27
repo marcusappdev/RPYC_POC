@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RPYC Visitor Sign-in (POC)</title>
+<meta name="robots" content="noindex">
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<style>
+  :root {
+    --navy: #0b2545;
+    --navy-2: #13315c;
+    --sea: #134074;
+    --sand: #f4f1ea;
+    --card: #ffffff;
+    --ink: #1b1f24;
+    --muted: #5b6573;
+    --line: #d9dde3;
+    --ok: #1e7b4f;
+    --ok-bg: #e6f4ec;
+    --warn: #a4161a;
+    --warn-bg: #fdeaea;
+    --brass: #b8892b;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    background: var(--sand);
+    color: var(--ink);
+    font-size: 18px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  header {
+    background: var(--navy);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 24px;
+  }
+  header .brand { font-weight: 700; font-size: 20px; letter-spacing: .3px; }
+  header .brand small { display: block; font-weight: 400; font-size: 13px; opacity: .75; }
+  header .spacer { flex: 1; }
+  header .who { font-size: 14px; opacity: .9; text-align: right; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #888; margin-right: 6px; vertical-align: middle; }
+  .dot.ok { background: #4ade80; }
+  .dot.bad { background: #f87171; }
+  header button.link { color: #fff; border-color: rgba(255,255,255,.4); }
+
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+  section { display: none; }
+  section.active { display: block; }
+  h1 { font-size: 28px; margin: 4px 0 6px; color: var(--navy); }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
+
+  button {
+    font: inherit;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    padding: 14px 24px;
+    min-height: 56px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--sea); color: #fff; }
+  button.primary:active { background: var(--navy); }
+  button.danger { background: var(--warn); color: #fff; }
+  button.secondary { background: #fff; color: var(--sea); border-color: var(--sea); }
+  button.link { background: transparent; color: var(--sea); border-color: transparent; text-decoration: underline; min-height: 44px; padding: 8px 12px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .row.end { justify-content: flex-end; }
+  .stack > * + * { margin-top: 16px; }
+
+  input[type=text], input[type=tel], textarea {
+    font: inherit;
+    width: 100%;
+    padding: 14px 16px;
+    border: 2px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--sea); }
+  label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+  .check { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
+  .check input { width: 28px; height: 28px; margin: 2px 0 0; flex: none; }
+  .check span { font-size: 16px; color: var(--ink); }
+
+  /* Members */
+  .members { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+  .members button { background: #fff; border: 2px solid var(--line); text-align: left; color: var(--ink); }
+  .members button small { display: block; color: var(--muted); font-size: 14px; }
+  .members button:active, .members button.selected { border-color: var(--sea); background: #eef3fa; }
+
+  /* Camera */
+  .camwrap { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; aspect-ratio: 4 / 3; max-height: 62vh; margin: 0 auto; }
+  .camwrap video, .camwrap img { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  .camwrap .oval {
+    position: absolute; left: 50%; top: 50%; width: 42%; height: 72%;
+    transform: translate(-50%, -50%); border: 4px dashed rgba(255,255,255,.75); border-radius: 50%;
+    pointer-events: none;
+  }
+  .camwrap .hint { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; color: #fff; font-size: 16px; text-shadow: 0 1px 3px #000; }
+
+  /* Result */
+  .visitor { display: flex; gap: 20px; align-items: center; }
+  .visitor .avatar { width: 84px; height: 84px; border-radius: 50%; background: var(--navy-2); color: #fff; display: grid; place-items: center; font-size: 32px; font-weight: 700; flex: none; }
+  .visitor h2 { margin: 0; font-size: 26px; }
+  .visitor .meta { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .count { display: flex; gap: 8px; margin: 20px 0 6px; }
+  .count span { width: 44px; height: 44px; border-radius: 10px; background: #e7ebf0; display: grid; place-items: center; font-weight: 700; color: var(--muted); }
+  .count span.used { background: var(--sea); color: #fff; }
+  .count span.over { background: var(--warn); color: #fff; }
+  .banner { border-radius: 12px; padding: 16px 18px; font-size: 17px; }
+  .banner.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid #b7e0c8; }
+  .banner.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f3b9b9; }
+  .banner strong { display: block; font-size: 19px; margin-bottom: 4px; }
+
+  #done .big { font-size: 64px; line-height: 1; color: var(--ok); }
+
+  #error {
+    display: none; position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 760px; margin: 0 auto;
+    background: var(--warn); color: #fff; border-radius: 12px; padding: 16px 20px; font-size: 17px; z-index: 30;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  }
+  #error.show { display: flex; gap: 16px; align-items: center; }
+  #error span { flex: 1; }
+  #error button { min-height: 40px; padding: 6px 14px; background: rgba(255,255,255,.2); color: #fff; }
+
+  #busy { display: none; position: fixed; inset: 0; background: rgba(11,37,69,.55); z-index: 20; place-items: center; }
+  #busy.show { display: grid; }
+  #busy div { background: #fff; padding: 24px 32px; border-radius: 14px; font-size: 19px; display: flex; gap: 14px; align-items: center; }
+  .spin { width: 26px; height: 26px; border: 4px solid #d6dbe3; border-top-color: var(--sea); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .poc { font-size: 13px; color: var(--muted); text-align: center; margin-top: 28px; }
+  @media (max-width: 640px) {
+    header { padding: 12px 16px; }
+    h1 { font-size: 24px; }
+    .visitor { flex-direction: column; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">RPYC Visitor Sign-in <small>Proof of concept</small></div>
+  <div class="spacer"></div>
+  <div class="who" id="who"></div>
+  <button class="link" id="btnSignOut" style="display:none">Sign out</button>
+</header>
+
+<main>
+
+  <!-- Staff sign-in -->
+  <section id="s-signin">
+    <div class="card stack" style="max-width:560px;margin:40px auto;text-align:center">
+      <h1>Front desk sign-in</h1>
+      <p class="lead">Staff: sign in with your Concept account to start.</p>
+      <button class="primary" id="btnSignIn">Sign in with Microsoft</button>
+    </div>
+  </section>
+
+  <!-- Choose sponsoring member -->
+  <section id="s-member">
+    <h1>Who is signing the visitor in?</h1>
+    <p class="lead">Select the sponsoring member.</p>
+    <input type="text" id="memberSearch" placeholder="Search by name or member number" autocomplete="off">
+    <div class="members" id="memberList"></div>
+  </section>
+
+  <!-- Camera -->
+  <section id="s-camera">
+    <h1>Visitor photo</h1>
+    <p class="lead" id="cameraLead"></p>
+    <div class="camwrap" id="camwrap">
+      <video id="video" playsinline autoplay muted></video>
+      <div class="oval"></div>
+      <div class="hint">Face the camera, inside the oval</div>
+    </div>
+    <div class="row" style="margin-top:16px;justify-content:space-between">
+      <button class="link" id="btnBackToMembers">← Change member</button>
+      <div class="row">
+        <button class="secondary" id="btnUsePhone">Visitor declines photo</button>
+        <button class="primary" id="btnCapture">Take photo</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Phone lookup (fallback) -->
+  <section id="s-phone">
+    <h1>Find visitor by phone</h1>
+    <p class="lead">For visitors who decline a photo, or if the photo can't be used.</p>
+    <div class="card stack" style="max-width:560px">
+      <div>
+        <label class="field" for="phoneLookup">Mobile number</label>
+        <input type="tel" id="phoneLookup" placeholder="e.g. 7123 4567" autocomplete="off">
+      </div>
+      <div class="row end">
+        <button class="link" id="btnPhoneBack">← Back to camera</button>
+        <button class="primary" id="btnPhoneFind">Find visitor</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- New visitor -->
+  <section id="s-new">
+    <h1>New visitor</h1>
+    <p class="lead" id="newLead"></p>
+    <div class="card stack" style="max-width:640px">
+      <div>
+        <label class="field" for="newName">Full name</label>
+        <input type="text" id="newName" autocomplete="off">
+      </div>
+      <div>
+        <label class="field" for="newPhone">Mobile number</label>
+        <input type="tel" id="newPhone" autocomplete="off">
+      </div>
+      <label class="check" id="consentBox">
+        <input type="checkbox" id="newConsent">
+        <span>The visitor agrees to the club keeping a face-recognition record for up to 12 months after their last visit, used only to check the visitor limit.</span>
+      </label>
+      <div class="row end">
+        <button class="link" id="btnNewCancel">Cancel</button>
+        <button class="primary" id="btnNewSave">Save visitor</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Visitor found / confirm -->
+  <section id="s-confirm">
+    <div class="card">
+      <div class="visitor">
+        <div class="avatar" id="vAvatar"></div>
+        <div>
+          <h2 id="vName"></h2>
+          <div class="meta" id="vMeta"></div>
+        </div>
+      </div>
+      <div class="count" id="vCount"></div>
+      <div class="meta" id="vCountText" style="color:var(--muted);margin-bottom:18px"></div>
+
+      <div class="banner ok" id="okBanner"><strong>Within the visitor limit</strong><span id="okText"></span></div>
+
+      <div class="stack" id="warnBlock">
+        <div class="banner warn"><strong>Visitor limit reached</strong><span id="warnText"></span></div>
+        <div>
+          <label class="field" for="overrideReason">Reason for signing in anyway (required)</label>
+          <textarea id="overrideReason" rows="2" placeholder="e.g. Approved by the duty manager"></textarea>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:20px;justify-content:space-between">
+        <button class="link" id="btnNotThem">Not this person?</button>
+        <div class="row">
+          <button class="secondary" id="btnConfirmCancel">Cancel</button>
+          <button class="primary" id="btnConfirm">Sign in visitor</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Done -->
+  <section id="s-done">
+    <div class="card stack" style="max-width:560px;margin:40px auto;text-align:center">
+      <div class="big">✓</div>
+      <h1 id="doneTitle">Signed in</h1>
+      <p class="lead" id="doneText"></p>
+      <button class="primary" id="btnNext">Next visitor</button>
+    </div>
+  </section>
+
+  <p class="poc">Proof of concept — Concept Group for the Royal Papua Yacht Club. Photos are not stored; only a face-recognition record is kept.</p>
+</main>
+
+<div id="busy"><div><span class="spin"></span><span id="busyText">Working…</span></div></div>
+<div id="error"><span id="errorText"></span><button id="btnErrClose">Dismiss</button></div>
+
+<script>
+// ===================== Settings =====================
+const CONFIG = {
+  clientId: "9061b224-d47e-4905-992a-a0c3704a52c7",
+  tenantId: "ea9e105c-2df6-47ef-a8e3-b4aa1d788423",
+  redirectUri: "https://marcusappdev.github.io/RPYC_POC/",
+  siteHost: "conceptcompg.sharepoint.com",
+  sitePath: "/sites/RPYC_POC",
+  faceApi: "https://zjd3d4msd2tucit2x5ycci2zv40fsacl.lambda-url.ap-southeast-2.on.aws/",
+  maxVisits: 4,          // visits allowed in a rolling 12 months
+  doneResetSeconds: 8,   // return to the member screen after a sign-in
+};
+const GRAPH = "https://graph.microsoft.com/v1.0";
+const GRAPH_SCOPES = ["Sites.ReadWrite.All", "User.Read"];
+
+// ===================== Helpers =====================
+const $ = (id) => document.getElementById(id);
+let state = {};
+let members = [];
+let siteId = null;
+let stream = null;
+let doneTimer = null;
+
+function show(sectionId) {
+  document.querySelectorAll("main section").forEach((s) => s.classList.toggle("active", s.id === sectionId));
+  if (sectionId === "s-camera") startCamera(); else stopCamera();
+  window.scrollTo(0, 0);
+}
+function busy(on, text) {
+  $("busyText").textContent = text || "Working…";
+  $("busy").classList.toggle("show", !!on);
+}
+function showError(msg) {
+  $("errorText").textContent = msg;
+  $("error").classList.add("show");
+}
+function clearError() { $("error").classList.remove("show"); }
+$("btnErrClose").onclick = clearError;
+
+function normalisePhone(p) {
+  const s = String(p || "").trim();
+  const plus = s.startsWith("+");
+  const digits = s.replace(/\D/g, "");
+  return digits ? (plus ? "+" : "") + digits : "";
+}
+function maskPhone(p) {
+  if (!p) return "No phone recorded";
+  return p.length > 4 ? "•••• " + p.slice(-4) : p;
+}
+function initials(name) {
+  return String(name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+}
+function oDataString(s) { return String(s).replace(/'/g, "''"); }
+function decodeJwt(t) {
+  try { return JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))); } catch { return {}; }
+}
+
+// ===================== Sign-in (MSAL) =====================
+const msalApp = new msal.PublicClientApplication({
+  auth: {
+    clientId: CONFIG.clientId,
+    authority: "https://login.microsoftonline.com/" + CONFIG.tenantId,
+    redirectUri: CONFIG.redirectUri,
+  },
+  cache: { cacheLocation: "localStorage" },
+});
+
+function account() {
+  return msalApp.getActiveAccount() || msalApp.getAllAccounts()[0] || null;
+}
+
+async function graphToken() {
+  try {
+    const r = await msalApp.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: account() });
+    return r.accessToken;
+  } catch (e) {
+    await msalApp.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
+    throw new Error("Redirecting to sign in…");
+  }
+}
+
+// ID token for the face service (it checks the token was issued to this app)
+async function faceToken() {
+  let r = await msalApp.acquireTokenSilent({ scopes: ["User.Read"], account: account() });
+  const exp = decodeJwt(r.idToken).exp || 0;
+  if (exp - Date.now() / 1000 < 300) {
+    r = await msalApp.acquireTokenSilent({ scopes: ["User.Read"], account: account(), forceRefresh: true });
+  }
+  return r.idToken;
+}
+
+// ===================== Graph / SharePoint =====================
+async function graph(path, options = {}) {
+  const token = await graphToken();
+  const res = await fetch(GRAPH + path, {
+    method: options.method || "GET",
+    headers: {
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json",
+      Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error("SharePoint error: " + (data.error?.message || res.status));
+  return data;
+}
+
+async function loadSite() {
+  const s = await graph(`/sites/${CONFIG.siteHost}:${CONFIG.sitePath}`);
+  siteId = s.id;
+}
+const listPath = (list) => `/sites/${siteId}/lists/${list}`;
+
+async function loadMembers() {
+  const r = await graph(listPath("Members") + "/items?expand=fields(select=Title,MemberNumber,Active)&$top=999");
+  members = (r.value || [])
+    .map((i) => ({ id: i.id, name: i.fields.Title || "", number: i.fields.MemberNumber || "", active: i.fields.Active !== false }))
+    .filter((m) => m.active)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function getVisitor(id) {
+  const i = await graph(listPath("Visitors") + `/items/${encodeURIComponent(id)}?expand=fields(select=Title,Phone,FaceId,ConsentGiven)`);
+  return { id: i.id, name: i.fields.Title, phone: i.fields.Phone || "", faceId: i.fields.FaceId || "", consent: !!i.fields.ConsentGiven };
+}
+
+async function findVisitorByPhone(phone) {
+  const r = await graph(listPath("Visitors") + `/items?expand=fields(select=Title,Phone,FaceId,ConsentGiven)&$filter=fields/Phone eq '${oDataString(phone)}'&$top=5`);
+  const i = (r.value || [])[0];
+  return i ? { id: i.id, name: i.fields.Title, phone: i.fields.Phone || "", faceId: i.fields.FaceId || "", consent: !!i.fields.ConsentGiven } : null;
+}
+
+async function createVisitor({ name, phone, consent }) {
+  const fields = { Title: name, Phone: phone, ConsentGiven: !!consent };
+  if (consent) fields.ConsentDate = new Date().toISOString();
+  const i = await graph(listPath("Visitors") + "/items", { method: "POST", body: { fields } });
+  return { id: i.id, name, phone, faceId: "", consent: !!consent };
+}
+
+async function updateVisitor(id, fields) {
+  await graph(listPath("Visitors") + `/items/${id}/fields`, { method: "PATCH", body: fields });
+}
+
+async function deleteVisitor(id) {
+  await graph(listPath("Visitors") + `/items/${id}`, { method: "DELETE" });
+}
+
+async function countVisits(visitorId) {
+  const since = new Date();
+  since.setFullYear(since.getFullYear() - 1);
+  const filter = `fields/VisitorLookupId eq ${Number(visitorId)} and fields/SignInTime ge '${since.toISOString()}'`;
+  let url = listPath("SignIns") + `/items?$select=id&$filter=${encodeURIComponent(filter)}&$top=999`;
+  let total = 0;
+  while (url) {
+    const r = await graph(url);
+    total += (r.value || []).length;
+    url = r["@odata.nextLink"] ? r["@odata.nextLink"].replace(GRAPH, "") : null;
+  }
+  return total;
+}
+
+async function createSignIn(rec) {
+  await graph(listPath("SignIns") + "/items", { method: "POST", body: { fields: rec } });
+}
+
+// ===================== Face service (AWS) =====================
+async function faceApi(body) {
+  const token = await faceToken();
+  const res = await fetch(CONFIG.faceApi, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || "Face service error (" + res.status + ")");
+    err.code = data.code;
+    throw err;
+  }
+  return data;
+}
+
+async function pingFaceApi() {
+  const dot = $("faceDot");
+  try {
+    await faceApi({ action: "ping" });
+    dot.className = "dot ok";
+    dot.title = "Face service connected";
+  } catch (e) {
+    dot.className = "dot bad";
+    dot.title = "Face service problem: " + e.message;
+    showError("Face service not reachable: " + e.message + ". Phone lookup still works.");
+  }
+}
+
+// ===================== Camera =====================
+async function startCamera() {
+  if (stream) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    });
+    $("video").srcObject = stream;
+  } catch (e) {
+    showError("Camera unavailable: " + e.message + ". Use 'Visitor declines photo' to continue by phone.");
+  }
+}
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+}
+function capturePhoto() {
+  const v = $("video");
+  if (!v.videoWidth) throw new Error("Camera is not ready yet.");
+  const maxW = 960;
+  const scale = Math.min(1, maxW / v.videoWidth);
+  const c = document.createElement("canvas");
+  c.width = Math.round(v.videoWidth * scale);
+  c.height = Math.round(v.videoHeight * scale);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+}
+
+// ===================== Screens =====================
+function renderMembers() {
+  const q = $("memberSearch").value.trim().toLowerCase();
+  const list = $("memberList");
+  list.textContent = "";
+  const shown = members.filter((m) => !q || m.name.toLowerCase().includes(q) || m.number.toLowerCase().includes(q));
+  if (!shown.length) {
+    const p = document.createElement("p");
+    p.className = "lead";
+    p.textContent = members.length ? "No members match that search." : "No active members found in the Members list.";
+    list.appendChild(p);
+    return;
+  }
+  for (const m of shown) {
+    const b = document.createElement("button");
+    b.textContent = m.name;
+    const s = document.createElement("small");
+    s.textContent = m.number ? "Member " + m.number : "";
+    b.appendChild(s);
+    b.onclick = () => chooseMember(m);
+    list.appendChild(b);
+  }
+}
+$("memberSearch").oninput = renderMembers;
+
+function newVisit() {
+  clearTimeout(doneTimer);
+  clearError();
+  state = { sponsor: null, visitor: null, method: null, photo: null, visits: 0 };
+  $("memberSearch").value = "";
+  renderMembers();
+  show("s-member");
+}
+
+function chooseMember(m) {
+  state.sponsor = m;
+  $("cameraLead").textContent = "Signed in by " + m.name + ". Ask the visitor to look at the camera.";
+  show("s-camera");
+}
+$("btnBackToMembers").onclick = newVisit;
+
+$("btnCapture").onclick = async () => {
+  clearError();
+  let photo;
+  try { photo = capturePhoto(); } catch (e) { return showError(e.message); }
+  state.photo = photo;
+  busy(true, "Checking visitor…");
+  try {
+    const r = await faceApi({ action: "search", image: photo });
+    if (r.match) {
+      state.method = "Face";
+      state.visitor = await getVisitor(r.visitorId);
+      await showConfirm();
+    } else {
+      state.method = "Face";
+      openNewVisitor(true);
+    }
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    busy(false);
+  }
+};
+
+$("btnUsePhone").onclick = () => {
+  state.photo = null;
+  $("phoneLookup").value = "";
+  show("s-phone");
+  setTimeout(() => $("phoneLookup").focus(), 50);
+};
+$("btnPhoneBack").onclick = () => show("s-camera");
+
+$("btnPhoneFind").onclick = async () => {
+  clearError();
+  const phone = normalisePhone($("phoneLookup").value);
+  if (phone.replace("+", "").length < 6) return showError("Please enter a full mobile number.");
+  busy(true, "Looking up visitor…");
+  try {
+    const v = await findVisitorByPhone(phone);
+    state.method = "Phone";
+    if (v) {
+      state.visitor = v;
+      await showConfirm();
+    } else {
+      openNewVisitor(false, phone);
+    }
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    busy(false);
+  }
+};
+
+function openNewVisitor(withPhoto, phone) {
+  $("newName").value = "";
+  $("newPhone").value = phone || "";
+  $("newConsent").checked = false;
+  $("consentBox").style.display = withPhoto ? "" : "none";
+  $("newLead").textContent = withPhoto
+    ? "No match found. Enter the visitor's details. If they don't agree to face recognition, leave the box unticked and they'll be recorded by phone only."
+    : "No visitor with that number. Enter their details to record them by phone only.";
+  show("s-new");
+  setTimeout(() => $("newName").focus(), 50);
+}
+$("btnNewCancel").onclick = newVisit;
+
+$("btnNewSave").onclick = async () => {
+  clearError();
+  const name = $("newName").value.trim().replace(/\s+/g, " ");
+  const phone = normalisePhone($("newPhone").value);
+  const useFace = !!state.photo && $("newConsent").checked;
+  if (name.length < 2) return showError("Please enter the visitor's full name.");
+  if (phone.replace("+", "").length < 6) return showError("Please enter a full mobile number.");
+
+  busy(true, "Saving visitor…");
+  let created = null;
+  try {
+    // Avoid duplicates: the same phone number may already belong to a visitor
+    let v = await findVisitorByPhone(phone);
+    if (!v) {
+      v = await createVisitor({ name, phone, consent: useFace });
+      created = v;
+    }
+    if (useFace) {
+      busy(true, "Saving face record…");
+      const r = await faceApi({ action: "enrol", image: state.photo, visitorId: v.id });
+      const fields = { FaceId: r.faceId };
+      if (!v.consent) { fields.ConsentGiven = true; fields.ConsentDate = new Date().toISOString(); }
+      await updateVisitor(v.id, fields);
+      v.faceId = r.faceId;
+      v.consent = true;
+      state.method = "Face";
+    } else {
+      state.method = "Phone";
+    }
+    state.visitor = v;
+    await showConfirm();
+  } catch (e) {
+    if (created && useFace) {
+      // Enrolment failed: remove the half-made record so the next attempt starts clean
+      try { await deleteVisitor(created.id); } catch {}
+      showError(e.message + " Please retake the photo.");
+      show("s-camera");
+    } else {
+      showError(e.message);
+    }
+  } finally {
+    state.photo = null; // never keep the photo longer than needed
+    busy(false);
+  }
+};
+
+async function showConfirm() {
+  busy(true, "Checking visits…");
+  const v = state.visitor;
+  state.visits = await countVisits(v.id);
+  const visits = state.visits;
+  const over = visits >= CONFIG.maxVisits;
+
+  $("vAvatar").textContent = initials(v.name);
+  $("vName").textContent = v.name;
+  $("vMeta").textContent = maskPhone(v.phone) + " · identified by " + (state.method === "Face" ? "face" : "phone") +
+    (v.faceId ? "" : " · no face record");
+
+  const counter = $("vCount");
+  counter.textContent = "";
+  const boxes = Math.max(CONFIG.maxVisits, visits);
+  for (let n = 1; n <= boxes; n++) {
+    const s = document.createElement("span");
+    s.textContent = n;
+    if (n <= visits) s.className = n > CONFIG.maxVisits ? "used over" : "used";
+    counter.appendChild(s);
+  }
+  $("vCountText").textContent = visits === 1
+    ? "1 visit in the last 12 months."
+    : visits + " visits in the last 12 months.";
+
+  $("okBanner").style.display = over ? "none" : "";
+  $("warnBlock").style.display = over ? "" : "none";
+  $("okText").textContent = "This will be visit " + (visits + 1) + " of " + CONFIG.maxVisits + ".";
+  $("warnText").textContent = v.name + " has already visited " + visits + " times in the last 12 months. The club limit is " +
+    CONFIG.maxVisits + ". You can still sign them in, but a reason is required.";
+  $("overrideReason").value = "";
+  $("btnConfirm").textContent = over ? "Sign in anyway" : "Sign in visitor";
+  $("btnConfirm").className = over ? "danger" : "primary";
+
+  busy(false);
+  show("s-confirm");
+}
+
+$("btnConfirmCancel").onclick = newVisit;
+$("btnNotThem").onclick = () => {
+  state.visitor = null;
+  $("phoneLookup").value = "";
+  show("s-phone");
+};
+
+$("btnConfirm").onclick = async () => {
+  clearError();
+  const v = state.visitor;
+  const over = state.visits >= CONFIG.maxVisits;
+  const reason = $("overrideReason").value.trim();
+  if (over && reason.length < 3) return showError("Please enter a reason for signing this visitor in over the limit.");
+
+  busy(true, "Signing in…");
+  try {
+    const now = new Date().toISOString();
+    const rec = {
+      Title: v.name,
+      VisitorLookupId: String(v.id),
+      SponsorMemberLookupId: String(state.sponsor.id),
+      SignInTime: now,
+      VisitsInLast12Months: state.visits + 1,
+      Method: state.method,
+      Warned: over,
+      RecordedBy: account()?.name || account()?.username || "",
+    };
+    if (over) rec.OverrideReason = reason;
+    await createSignIn(rec);
+    await updateVisitor(v.id, { LastVisit: now });
+
+    $("doneTitle").textContent = v.name + " is signed in";
+    $("doneText").textContent = "Visit " + (state.visits + 1) + " in the last 12 months, sponsored by " + state.sponsor.name + "." +
+      (over ? " Recorded as over the limit." : "");
+    show("s-done");
+    doneTimer = setTimeout(newVisit, CONFIG.doneResetSeconds * 1000);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    busy(false);
+  }
+};
+$("btnNext").onclick = newVisit;
+
+// ===================== Start-up =====================
+$("btnSignIn").onclick = () => msalApp.loginRedirect({ scopes: GRAPH_SCOPES });
+$("btnSignOut").onclick = () => msalApp.logoutRedirect({ account: account(), postLogoutRedirectUri: CONFIG.redirectUri });
+
+(async function start() {
+  try {
+    const r = await msalApp.handleRedirectPromise();
+    if (r?.account) msalApp.setActiveAccount(r.account);
+    const acc = account();
+    if (!acc) return show("s-signin");
+    msalApp.setActiveAccount(acc);
+
+    const who = $("who");
+    who.textContent = "";
+    const d = document.createElement("span");
+    d.id = "faceDot";
+    d.className = "dot";
+    who.appendChild(d);
+    who.appendChild(document.createTextNode(acc.name || acc.username));
+    $("btnSignOut").style.display = "";
+
+    busy(true, "Loading members…");
+    await loadSite();
+    await loadMembers();
+    busy(false);
+    newVisit();
+    pingFaceApi();
+  } catch (e) {
+    busy(false);
+    showError(e.message);
+    if (!account()) show("s-signin");
+  }
+})();
+</script>
+</body>
+</html>
