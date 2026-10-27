@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>RPYC Visitor Sign-in (POC)</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <meta name="robots" content="noindex">
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <style>
@@ -40,6 +41,13 @@
     gap: 16px;
     padding: 14px 24px;
   }
+  header .crest { width: 54px; height: 54px; border-radius: 50%; background: #fff; display: grid; place-items: center; flex: none; box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+  header .crest img { width: 40px; height: auto; display: block; }
+  .club { display: flex; align-items: center; gap: 22px; margin-bottom: 18px; }
+  .club img { width: 96px; height: auto; flex: none; }
+  .club .club-name { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #2e3192; }
+  .crest-hero { width: 180px; height: auto; display: block; margin: 0 auto 8px; }
+  .club-title { font-size: 18px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #2e3192; margin: 0; }
   header .brand { font-weight: 700; font-size: 20px; letter-spacing: .3px; }
   header .brand small { display: block; font-weight: 400; font-size: 13px; opacity: .75; }
   header .spacer { flex: 1; }
@@ -137,7 +145,11 @@
 
   .poc { font-size: 13px; color: var(--muted); text-align: center; margin-top: 28px; }
   @media (max-width: 640px) {
-    header { padding: 12px 16px; }
+    header { padding: 12px 16px; gap: 10px; }
+    header .crest { width: 44px; height: 44px; }
+    header .crest img { width: 32px; }
+    .club img { width: 72px; }
+    .crest-hero { width: 140px; }
     h1 { font-size: 24px; }
     .visitor { flex-direction: column; text-align: center; }
   }
@@ -146,7 +158,8 @@
 <body>
 
 <header>
-  <div class="brand">RPYC Visitor Sign-in <small>Proof of concept</small></div>
+  <div class="crest"><img src="rpyc-logo.png" alt="Royal Papua Yacht Club crest"></div>
+  <div class="brand">Royal Papua Yacht Club <small>Visitor sign-in · proof of concept</small></div>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
   <button class="link" id="btnSignOut" style="display:none">Sign out</button>
@@ -157,6 +170,8 @@
   <!-- Staff sign-in -->
   <section id="s-signin">
     <div class="card stack" style="max-width:560px;margin:40px auto;text-align:center">
+      <img class="crest-hero" src="rpyc-logo.png" alt="Royal Papua Yacht Club crest">
+      <p class="club-title">Royal Papua Yacht Club</p>
       <h1>Front desk sign-in</h1>
       <p class="lead">Staff: sign in with your Concept account to start.</p>
       <button class="primary" id="btnSignIn">Sign in with Microsoft</button>
@@ -165,8 +180,14 @@
 
   <!-- Choose sponsoring member -->
   <section id="s-member">
-    <h1>Who is signing the visitor in?</h1>
-    <p class="lead">Select the sponsoring member.</p>
+    <div class="club">
+      <img src="rpyc-logo.png" alt="Royal Papua Yacht Club crest">
+      <div>
+        <div class="club-name">Royal Papua Yacht Club · Visitor sign-in</div>
+        <h1>Who is signing the visitor in?</h1>
+        <p class="lead" style="margin:0">Select the sponsoring member.</p>
+      </div>
+    </div>
     <input type="text" id="memberSearch" placeholder="Search by name or member number" autocomplete="off">
     <div class="members" id="memberList"></div>
   </section>
@@ -265,6 +286,7 @@
   <!-- Done -->
   <section id="s-done">
     <div class="card stack" style="max-width:560px;margin:40px auto;text-align:center">
+      <img class="crest-hero" src="rpyc-logo.png" alt="Royal Papua Yacht Club crest" style="width:120px">
       <div class="big">✓</div>
       <h1 id="doneTitle">Signed in</h1>
       <p class="lead" id="doneText"></p>
@@ -272,7 +294,7 @@
     </div>
   </section>
 
-  <p class="poc">Proof of concept — Concept Group for the Royal Papua Yacht Club. Photos are not stored; only a face-recognition record is kept.</p>
+  <p class="poc">Royal Papua Yacht Club · Proof of concept by Concept Group. Photos are not stored; only a face-recognition record is kept.</p>
 </main>
 
 <div id="busy"><div><span class="spin"></span><span id="busyText">Working…</span></div></div>
