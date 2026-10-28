@@ -143,6 +143,17 @@
   .spin { width: 26px; height: 26px; border: 4px solid #d6dbe3; border-top-color: var(--sea); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* Housekeeping */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 8px 0 20px; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+  .stat b { display: block; font-size: 30px; color: var(--navy); }
+  .stat span { color: var(--muted); font-size: 14px; }
+  .stat.due b { color: var(--warn); }
+  table.due { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 16px; }
+  table.due th, table.due td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  table.due th { background: #eef1f5; font-size: 14px; color: var(--muted); font-weight: 600; }
+  table.due tr:last-child td { border-bottom: 0; }
+  .empty { background: var(--ok-bg); color: var(--ok); border: 1px solid #b7e0c8; border-radius: 12px; padding: 18px; }
   .poc { font-size: 13px; color: var(--muted); text-align: center; margin-top: 28px; }
   @media (max-width: 640px) {
     header { padding: 12px 16px; gap: 10px; }
@@ -162,6 +173,7 @@
   <div class="brand">Royal Papua Yacht Club <small>Visitor sign-in · proof of concept</small></div>
   <div class="spacer"></div>
   <div class="who" id="who"></div>
+  <button class="link" id="btnHousekeeping" style="display:none">Housekeeping</button>
   <button class="link" id="btnSignOut" style="display:none">Sign out</button>
 </header>
 
@@ -291,6 +303,25 @@
       <h1 id="doneTitle">Signed in</h1>
       <p class="lead" id="doneText"></p>
       <button class="primary" id="btnNext">Next visitor</button>
+    </div>
+  </section>
+
+  <!-- Housekeeping (admins only) -->
+  <section id="s-house">
+    <h1>Housekeeping</h1>
+    <p class="lead">Face records are removed once a visitor has had no visits for 12 months. Their name, phone and visit history stay in SharePoint; if they return, they are simply photographed again.</p>
+    <div class="stats">
+      <div class="stat"><b id="hVisitors">–</b><span>Visitors on record</span></div>
+      <div class="stat"><b id="hFaces">–</b><span>Face records held</span></div>
+      <div class="stat due"><b id="hDue">–</b><span>Face records due for removal</span></div>
+    </div>
+    <div id="hList"></div>
+    <div class="row" style="margin-top:20px;justify-content:space-between">
+      <button class="link" id="btnHouseBack">← Back to sign-in</button>
+      <div class="row">
+        <button class="secondary" id="btnHouseRefresh">Refresh</button>
+        <button class="danger" id="btnHouseRemove" disabled>Remove face records</button>
+      </div>
     </div>
   </section>
 
@@ -487,8 +518,9 @@ async function faceApi(body) {
 async function pingFaceApi() {
   const dot = $("faceDot");
   try {
-    await faceApi({ action: "ping" });
+    const r = await faceApi({ action: "ping" });
     dot.className = "dot ok";
+    if (r.admin) $("btnHousekeeping").style.display = "";
     dot.title = "Face service connected";
   } catch (e) {
     dot.className = "dot bad";
@@ -758,6 +790,133 @@ $("btnConfirm").onclick = async () => {
   }
 };
 $("btnNext").onclick = newVisit;
+
+// ===================== Housekeeping (retention) =====================
+let house = { due: [], confirm: false };
+
+async function listAllItems(path) {
+  const items = [];
+  let url = path;
+  while (url) {
+    const r = await graph(url);
+    items.push(...(r.value || []));
+    url = r["@odata.nextLink"] ? r["@odata.nextLink"].replace(GRAPH, "") : null;
+  }
+  return items;
+}
+
+function fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "—";
+}
+
+async function loadHousekeeping() {
+  clearError();
+  busy(true, "Checking records…");
+  try {
+    const [items, faceList] = await Promise.all([
+      listAllItems(listPath("Visitors") + "/items?expand=fields(select=Title,FaceId,LastVisit)&$top=999"),
+      faceApi({ action: "listFaces" }),
+    ]);
+    const visitors = new Map(items.map((i) => [String(i.id), {
+      id: i.id,
+      name: i.fields.Title || "(no name)",
+      faceId: i.fields.FaceId || "",
+      lastActivity: i.fields.LastVisit || i.createdDateTime,
+      visited: !!i.fields.LastVisit,
+    }]));
+
+    // Group face records by the visitor they belong to
+    const byVisitor = new Map();
+    for (const f of faceList.faces || []) {
+      if (!byVisitor.has(f.visitorId)) byVisitor.set(f.visitorId, []);
+      byVisitor.get(f.visitorId).push(f.faceId);
+    }
+
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 1);
+    const due = [];
+    for (const [visitorId, faceIds] of byVisitor) {
+      const v = visitors.get(String(visitorId));
+      if (!v) {
+        due.push({ visitorId, name: "(visitor record deleted)", last: null, faceIds, reason: "No matching visitor in SharePoint" });
+      } else if (new Date(v.lastActivity) < cutoff) {
+        due.push({ visitorId, name: v.name, last: v.lastActivity, faceIds, hasFaceField: !!v.faceId,
+          reason: v.visited ? "No visits in the last 12 months" : "Enrolled over 12 months ago, never signed in" });
+      }
+    }
+    due.sort((a, b) => new Date(a.last || 0) - new Date(b.last || 0));
+
+    house = { due, confirm: false };
+    $("hVisitors").textContent = visitors.size;
+    $("hFaces").textContent = (faceList.faces || []).length;
+    $("hDue").textContent = due.reduce((n, d) => n + d.faceIds.length, 0);
+    renderDue();
+  } catch (e) {
+    showError(e.code === "FORBIDDEN" ? "Housekeeping is for administrators only." : e.message);
+  } finally {
+    busy(false);
+  }
+}
+
+function renderDue() {
+  const box = $("hList");
+  box.textContent = "";
+  const btn = $("btnHouseRemove");
+  const count = house.due.reduce((n, d) => n + d.faceIds.length, 0);
+  if (!house.due.length) {
+    const ok = document.createElement("div");
+    ok.className = "empty";
+    ok.textContent = "Nothing is due for removal. Every face record belongs to a visitor seen in the last 12 months.";
+    box.appendChild(ok);
+    btn.disabled = true;
+    btn.textContent = "Remove face records";
+    return;
+  }
+  const t = document.createElement("table");
+  t.className = "due";
+  const head = t.insertRow();
+  for (const h of ["Visitor", "Last activity", "Face records", "Reason"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  for (const d of house.due) {
+    const r = t.insertRow();
+    for (const v of [d.name, fmtDate(d.last), d.faceIds.length, d.reason]) r.insertCell().textContent = v;
+  }
+  box.appendChild(t);
+  btn.disabled = false;
+  btn.textContent = house.confirm ? `Confirm: remove ${count} face record${count === 1 ? "" : "s"}` : `Remove ${count} face record${count === 1 ? "" : "s"}`;
+}
+
+async function removeDue() {
+  if (!house.confirm) {
+    house.confirm = true; // second click confirms
+    return renderDue();
+  }
+  clearError();
+  busy(true, "Removing face records…");
+  try {
+    const all = house.due.flatMap((d) => d.faceIds);
+    for (let i = 0; i < all.length; i += 1000) {
+      await faceApi({ action: "delete", faceIds: all.slice(i, i + 1000) });
+    }
+    // Clear the face reference on the visitor's SharePoint record; name, phone and history stay
+    for (const d of house.due) {
+      if (d.hasFaceField) await updateVisitor(d.visitorId, { FaceId: "" });
+    }
+    busy(false);
+    await loadHousekeeping();
+  } catch (e) {
+    busy(false);
+    showError(e.message);
+  }
+}
+
+$("btnHousekeeping").onclick = () => { clearTimeout(doneTimer); show("s-house"); loadHousekeeping(); };
+$("btnHouseRefresh").onclick = loadHousekeeping;
+$("btnHouseRemove").onclick = removeDue;
+$("btnHouseBack").onclick = newVisit;
 
 // ===================== Start-up =====================
 $("btnSignIn").onclick = () => msalApp.loginRedirect({ scopes: GRAPH_SCOPES });
