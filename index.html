@@ -179,10 +179,25 @@
   }
   .poc { font-size: 13px; color: var(--muted); text-align: center; margin-top: 28px; }
   @media (max-width: 640px) {
-    header { padding: 12px 16px; gap: 10px; }
+    /* Two-row header: crest + club name, then staff name + buttons */
+    header { padding: 10px 16px; gap: 8px 10px; flex-wrap: wrap; }
     header .crest { width: 44px; height: 44px; }
     header .crest img { width: 32px; }
-    .club img { width: 72px; }
+    header .brand { flex: 1 1 calc(100% - 60px); font-size: 18px; line-height: 1.2; }
+    header .brand small { font-size: 12px; }
+    header .spacer { display: none; }
+    header .who { flex: 1 1 auto; text-align: left; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    header button.link { min-height: 36px; padding: 4px 10px; font-size: 15px; border: 1px solid rgba(255,255,255,.4); }
+    .stats { grid-template-columns: 1fr; }
+    .stat { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; }
+    .stat b { font-size: 24px; }
+    #hList { overflow-x: auto; }
+    .row > button { flex: 1 1 auto; }
+    .club { gap: 14px; }
+    .club img { width: 56px; }
+    .club .club-name { display: none; } /* the header already names the club */
+    .count { justify-content: center; }
+    #vCountText { text-align: center; }
     .crest-hero { width: 140px; }
     h1 { font-size: 24px; }
     .visitor { flex-direction: column; text-align: center; }
@@ -223,7 +238,7 @@
         <p class="lead" style="margin:0">Select the sponsoring member.</p>
       </div>
     </div>
-    <input type="text" id="memberSearch" placeholder="Search by name or member number" autocomplete="off">
+    <input type="text" id="memberSearch" placeholder="Search name or member no." autocomplete="off">
     <div class="members" id="memberList"></div>
   </section>
 
