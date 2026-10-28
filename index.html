@@ -154,6 +154,29 @@
   table.due th { background: #eef1f5; font-size: 14px; color: var(--muted); font-weight: 600; }
   table.due tr:last-child td { border-bottom: 0; }
   .empty { background: var(--ok-bg); color: var(--ok); border: 1px solid #b7e0c8; border-radius: 12px; padding: 18px; }
+  /* Receipt (only visible when printing) */
+  #receipt { display: none; }
+  @media print {
+    @page { margin: 0; }
+    html, body { background: #fff; }
+    body > *:not(#receipt) { display: none !important; }
+    #receipt {
+      display: block; width: var(--receipt-w, 72mm); padding: 3mm 0 6mm; margin: 0 auto;
+      font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 10.5pt; line-height: 1.35;
+    }
+    #receipt .r-crest { display: block; width: 26mm; margin: 0 auto 1.5mm; filter: brightness(0); }
+    #receipt .r-club { text-align: center; font-weight: 700; font-size: 11pt; letter-spacing: .5pt; text-transform: uppercase; }
+    #receipt .r-title { text-align: center; font-weight: 700; font-size: 15pt; margin: 2.5mm 0 1mm; letter-spacing: 1pt; }
+    #receipt .r-sub { text-align: center; font-size: 9pt; }
+    #receipt hr { border: 0; border-top: 1px dashed #000; margin: 3mm 0; }
+    #receipt .r-name { text-align: center; font-size: 15pt; font-weight: 700; margin: 1mm 0 2mm; word-break: break-word; }
+    #receipt table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+    #receipt td { padding: .8mm 0; vertical-align: top; }
+    #receipt td:first-child { width: 42%; padding-right: 2mm; }
+    #receipt td:last-child { font-weight: 700; word-break: break-word; }
+    #receipt .r-note { border: 1.5px solid #000; padding: 1.5mm 2mm; margin-top: 2.5mm; font-size: 9.5pt; }
+    #receipt .r-foot { text-align: center; font-size: 8.5pt; margin-top: 3mm; }
+  }
   .poc { font-size: 13px; color: var(--muted); text-align: center; margin-top: 28px; }
   @media (max-width: 640px) {
     header { padding: 12px 16px; gap: 10px; }
@@ -302,7 +325,10 @@
       <div class="big">✓</div>
       <h1 id="doneTitle">Signed in</h1>
       <p class="lead" id="doneText"></p>
-      <button class="primary" id="btnNext">Next visitor</button>
+      <div class="row" style="justify-content:center">
+        <button class="secondary" id="btnPrint">Print receipt</button>
+        <button class="primary" id="btnNext">Next visitor</button>
+      </div>
     </div>
   </section>
 
@@ -328,6 +354,27 @@
   <p class="poc">Royal Papua Yacht Club · Proof of concept by Concept Group. Photos are not stored; only a face-recognition record is kept.</p>
 </main>
 
+<div id="receipt" aria-hidden="true">
+  <img class="r-crest" src="rpyc-logo.png" alt="">
+  <div class="r-club">Royal Papua Yacht Club</div>
+  <div class="r-title">VISITOR PASS</div>
+  <div class="r-sub" id="rDate"></div>
+  <hr>
+  <div class="r-name" id="rName"></div>
+  <table>
+    <tr><td>Signed in by</td><td id="rMember"></td></tr>
+    <tr><td>Member no.</td><td id="rMemberNo"></td></tr>
+    <tr><td>Time</td><td id="rTime"></td></tr>
+    <tr><td>Visit</td><td id="rVisit"></td></tr>
+    <tr><td>Registration</td><td id="rReg"></td></tr>
+    <tr><td>Recorded by</td><td id="rStaff"></td></tr>
+    <tr><td>Reference</td><td id="rRef"></td></tr>
+  </table>
+  <div class="r-note" id="rNote"></div>
+  <hr>
+  <div class="r-foot">Valid for today only. Please keep this pass with you while on club premises.</div>
+</div>
+
 <div id="busy"><div><span class="spin"></span><span id="busyText">Working…</span></div></div>
 <div id="error"><span id="errorText"></span><button id="btnErrClose">Dismiss</button></div>
 
@@ -341,7 +388,9 @@ const CONFIG = {
   sitePath: "/sites/RPYC_POC",
   faceApi: "https://zjd3d4msd2tucit2x5ycci2zv40fsacl.lambda-url.ap-southeast-2.on.aws/",
   maxVisits: 4,          // visits allowed in a rolling 12 months
-  doneResetSeconds: 8,   // return to the member screen after a sign-in
+  doneResetSeconds: 15,  // return to the member screen after a sign-in
+  receiptWidthMm: 72,    // printable width: 72 for 80 mm receipt paper, 48 for 58 mm
+  autoPrintReceipt: false, // true = print automatically after every sign-in
 };
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const GRAPH_SCOPES = ["Sites.ReadWrite.All", "User.Read"];
@@ -495,7 +544,7 @@ async function countVisits(visitorId) {
 }
 
 async function createSignIn(rec) {
-  await graph(listPath("SignIns") + "/items", { method: "POST", body: { fields: rec } });
+  return graph(listPath("SignIns") + "/items", { method: "POST", body: { fields: rec } });
 }
 
 // ===================== Face service (AWS) =====================
@@ -775,14 +824,17 @@ $("btnConfirm").onclick = async () => {
       RecordedBy: account()?.name || account()?.username || "",
     };
     if (over) rec.OverrideReason = reason;
-    await createSignIn(rec);
+    const item = await createSignIn(rec);
     await updateVisitor(v.id, { LastVisit: now });
+    fillReceipt({ visitor: v, sponsor: state.sponsor, when: new Date(now), visit: state.visits + 1, over, reason,
+      method: state.method, staff: rec.RecordedBy, ref: item?.id });
 
     $("doneTitle").textContent = v.name + " is signed in";
     $("doneText").textContent = "Visit " + (state.visits + 1) + " in the last 12 months, sponsored by " + state.sponsor.name + "." +
       (over ? " Recorded as over the limit." : "");
     show("s-done");
-    doneTimer = setTimeout(newVisit, CONFIG.doneResetSeconds * 1000);
+    if (CONFIG.autoPrintReceipt) printReceipt();
+    else doneTimer = setTimeout(newVisit, CONFIG.doneResetSeconds * 1000);
   } catch (e) {
     showError(e.message);
   } finally {
@@ -790,6 +842,42 @@ $("btnConfirm").onclick = async () => {
   }
 };
 $("btnNext").onclick = newVisit;
+
+// ===================== Receipt =====================
+function fillReceipt(r) {
+  document.documentElement.style.setProperty("--receipt-w", CONFIG.receiptWidthMm + "mm");
+  const date = r.when.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const time = r.when.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+  $("rDate").textContent = date;
+  $("rName").textContent = r.visitor.name;
+  $("rMember").textContent = r.sponsor.name;
+  $("rMemberNo").textContent = r.sponsor.number || "—";
+  $("rTime").textContent = time;
+  $("rVisit").textContent = r.visit + " of " + CONFIG.maxVisits + " (last 12 months)";
+  $("rReg").textContent = r.method === "Face" ? "Complete (face)" : "Complete (phone)";
+  $("rStaff").textContent = r.staff || "—";
+  $("rRef").textContent = r.ref ? "RPYC-" + String(r.ref).padStart(5, "0") : "—";
+  const note = $("rNote");
+  if (r.over) {
+    note.style.display = "";
+    note.textContent = "Over the visitor limit. Reason: " + r.reason;
+  } else {
+    note.style.display = "none";
+    note.textContent = "";
+  }
+}
+
+function printReceipt() {
+  clearTimeout(doneTimer); // stay on this screen while the print dialog is open
+  window.print();
+}
+window.addEventListener("afterprint", () => {
+  if ($("s-done").classList.contains("active")) {
+    clearTimeout(doneTimer);
+    doneTimer = setTimeout(newVisit, CONFIG.doneResetSeconds * 1000);
+  }
+});
+$("btnPrint").onclick = printReceipt;
 
 // ===================== Housekeeping (retention) =====================
 let house = { due: [], confirm: false };
